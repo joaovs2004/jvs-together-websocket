@@ -1,6 +1,7 @@
 import WebSocket, { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import got from 'got';
+import "dotenv/config";
 
 const wss = new WebSocketServer({ port: 8080 });
 
@@ -47,6 +48,7 @@ wss.on('connection', function connection(ws) {
                 if(clientsInRoom == undefined) {
                     rooms[parsedData.roomId] = {
                         currentVideo: "",
+                        currentVideoPayload: "",
                         clients: {},
                         isReadyCount: 0,
                         history: []
@@ -62,34 +64,64 @@ wss.on('connection', function connection(ws) {
                 ws.send(JSON.stringify({ type: "connectedClients", clients: getClientsNames(rooms[parsedData.roomId].clients) }));
                 ws.send(JSON.stringify({type: "updateHistory", history: rooms[parsedData.roomId].history}));
 
-                if(rooms[parsedData.roomId].currentVideo != "") {
-                    ws.send(JSON.stringify({ type: "setVideo", videoId: rooms[parsedData.roomId].currentVideo, broadcast: true, roomId: parsedData.roomId }));
+                if(rooms[parsedData.roomId].currentVideoPayload != "") {
+                    ws.send(rooms[parsedData.roomId].currentVideoPayload);
                 }
 
                 break;
             case "setVideo":
-                if(rooms[parsedData.roomId].currentVideo == parsedData.videoId) {
+                const videoUrl = new URL(parsedData.url);
+                let videoId;
+
+                if (!["www.youtube.com", "youtube.com", "youtu.be"].includes(videoUrl.hostname)) {
                     break;
                 }
 
-                rooms[parsedData.roomId].currentVideo = parsedData.videoId;
+                // Handle youtu.be
+                if (videoUrl.pathname == "/watch") {
+                    videoId = videoUrl.searchParams.get("v");
+                } else {
+                    videoId = videoUrl.pathname.substring(8);
+                }
+
+                // Don't change video if it's the same as the current video
+                if (rooms[parsedData.roomId].currentVideo == videoId) {
+                    break;
+                }
+
+                // Gather basic video information (title & restrictions)
+                const basicInfo = await got.get(`${process.env.INVIDIOUS_INSTANCE_URL}/api/v1/videos/${videoId}?fields=title,isFamilyFriendly`).json();
+                let payload = "";
+
+                rooms[parsedData.roomId].currentVideo = videoId;
                 rooms[parsedData.roomId].isReadyCount = 0;
+                rooms[parsedData.roomId].history.push({ videoId: videoId, title: basicInfo.title });
 
-                for(const client of Object.values(rooms[parsedData.roomId].clients)) {
-                    if(client.ws.readyState === WebSocket.OPEN) {
-                        client.ws.send(data, { binary: isBinary });
+                if (basicInfo.isFamilyFriendly) {
+                    payload = JSON.stringify({ type: "setVideo", videoId: videoId, isRestrictedVideo: false });
+
+                    for(const client of Object.values(rooms[parsedData.roomId].clients)) {
+                        if(client.ws.readyState === WebSocket.OPEN) {
+                            client.ws.send(payload);
+                            client.ws.send(JSON.stringify({ type: "updateHistory", history: rooms[parsedData.roomId].history }), { binary: isBinary });
+                        }
+                    }
+                } else {
+                    const info = await got.get(`${process.env.PIPED_API_URL}/streams/${videoId}`).json();
+                    const tracks = [...info.audioStreams, ...info.videoStreams];
+
+                    rooms[parsedData.roomId].history.push({ videoId: videoId, title: info.title });
+                    payload = JSON.stringify({ type: "setVideo", videoId: videoId, tracks: tracks, duration: info.duration, thumbnail: info.thumbnailUrl, isRestrictedVideo: true });
+
+                    for (const client of Object.values(rooms[parsedData.roomId].clients)) {
+                        if (client.ws.readyState === WebSocket.OPEN) {
+                            client.ws.send(payload);
+                            client.ws.send(JSON.stringify({ type: "updateHistory", history: rooms[parsedData.roomId].history }), { binary: isBinary });
+                        }
                     }
                 }
 
-                const info = await got.get(`https://search.w2g.tv/w2g_search/lookup?url=//www.youtube.com/watch?v=${parsedData.videoId}`).json();
-
-                rooms[parsedData.roomId].history.push({videoId: parsedData.videoId, title: info.title});
-
-                for(const client of Object.values(rooms[parsedData.roomId].clients)) {
-                    if(client.ws.readyState === WebSocket.OPEN) {
-                        client.ws.send(JSON.stringify({type: "updateHistory", history: rooms[parsedData.roomId].history}), { binary: isBinary });
-                    }
-                }
+                rooms[parsedData.roomId].currentVideoPayload = payload;
 
                 break;
             case "pong":
