@@ -70,7 +70,13 @@ wss.on('connection', function connection(ws) {
 
                 break;
             case "setVideo":
-                const videoUrl = new URL(parsedData.url);
+                let videoUrl;
+                try {
+                    videoUrl = new URL(parsedData.url);
+                } catch {
+                    break;
+                }
+
 
                 let videoId;
 
