@@ -71,6 +71,7 @@ wss.on('connection', function connection(ws) {
                 break;
             case "setVideo":
                 const videoUrl = new URL(parsedData.url);
+
                 let videoId;
 
                 if (!["www.youtube.com", "youtube.com", "youtu.be"].includes(videoUrl.hostname)) {
@@ -95,7 +96,7 @@ wss.on('connection', function connection(ws) {
 
                 rooms[parsedData.roomId].currentVideo = videoId;
                 rooms[parsedData.roomId].isReadyCount = 0;
-                rooms[parsedData.roomId].history.push({ videoId: videoId, title: basicInfo.title });
+                rooms[parsedData.roomId].history.push({ url: parsedData.url, title: basicInfo.title, videoId: videoId });
 
                 if (basicInfo.isFamilyFriendly) {
                     payload = JSON.stringify({ type: "setVideo", videoId: videoId, isRestrictedVideo: false });
