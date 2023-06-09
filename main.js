@@ -117,7 +117,6 @@ wss.on('connection', function connection(ws) {
                     const info = await got.get(`${process.env.PIPED_API_URL}/streams/${videoId}`).json();
                     const tracks = [...info.audioStreams, ...info.videoStreams];
 
-                    rooms[parsedData.roomId].history.push({ videoId: videoId, title: info.title });
                     payload = JSON.stringify({ type: "setVideo", videoId: videoId, tracks: tracks, duration: info.duration, thumbnail: info.thumbnailUrl, isRestrictedVideo: true });
 
                     for (const client of Object.values(rooms[parsedData.roomId].clients)) {
