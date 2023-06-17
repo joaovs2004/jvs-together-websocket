@@ -71,6 +71,7 @@ wss.on('connection', function connection(ws) {
                 break;
             case "setVideo":
                 let videoUrl;
+
                 try {
                     videoUrl = new URL(parsedData.url);
                 } catch {
@@ -87,6 +88,8 @@ wss.on('connection', function connection(ws) {
                 // Handle youtu.be
                 if (videoUrl.pathname == "/watch") {
                     videoId = videoUrl.searchParams.get("v");
+                } else if(videoUrl.hostname == "youtu.be") {
+                    videoId = videoUrl.pathname.substring(1);
                 } else {
                     videoId = videoUrl.pathname.substring(8);
                 }
@@ -97,7 +100,9 @@ wss.on('connection', function connection(ws) {
                 }
 
                 // Gather basic video information (title & restrictions)
+                console.time("invidios");
                 const basicInfo = await got.get(`${process.env.INVIDIOUS_INSTANCE_URL}/api/v1/videos/${videoId}?fields=title,isFamilyFriendly`).json();
+                console.timeEnd("invidios");
                 let payload = "";
 
                 rooms[parsedData.roomId].currentVideo = videoId;
