@@ -83,6 +83,7 @@ wss.on('connection', function connection(ws) {
                 let videoId;
 
                 if (!["www.youtube.com", "youtube.com", "youtu.be"].includes(videoUrl.hostname)) {
+                    ws.send(JSON.stringify({ type: "unlockSetVideo" }));
                     break;
                 }
 
@@ -97,6 +98,7 @@ wss.on('connection', function connection(ws) {
 
                 // Don't change video if it's the same as the current video
                 if (rooms[parsedData.roomId].currentVideo == videoId) {
+                    ws.send(JSON.stringify({ type: "unlockSetVideo" }));
                     break;
                 }
 
