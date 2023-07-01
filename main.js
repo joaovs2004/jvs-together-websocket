@@ -100,8 +100,19 @@ wss.on('connection', function connection(ws) {
                     break;
                 }
 
-                // Gather basic video information (title & restrictions)
-                const basicInfo = await got.get(`${process.env.INVIDIOUS_INSTANCE_URL}/api/v1/videos/${videoId}?fields=title,isFamilyFriendly`).json();
+                let basicInfo;
+
+                try {
+                    // Gather basic video information (title & restrictions)
+                    basicInfo = await got.get(`${process.env.INVIDIOUS_INSTANCE_URL}/api/v1/videos/${videoId}?fields=title,isFamilyFriendly`).json();
+
+                } catch (error) {
+                    console.log(error);
+                    ws.send(JSON.stringify({ type: "unlockSetVideo" }));
+
+                    break;
+                }
+
                 let payload = "";
 
                 rooms[parsedData.roomId].currentVideo = videoId;
