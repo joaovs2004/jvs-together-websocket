@@ -1,37 +1,22 @@
-use anyhow::Result;
-use futures_util::SinkExt;
+use anyhow::{anyhow, Result};
 use tokio_tungstenite::tungstenite::Message;
+use xtra::WeakAddress;
 
-use crate::data_types::state_types::JvsState;
+use crate::data_types::state_types::{JvsState, StateGetClientsMessage, StateGenericMessage};
 use crate::data_types::msg_types::ServerMsg;
 
-pub async fn broadcast_message(msg: ServerMsg, state: &mut JvsState, room_id: String) -> Result<()> {
-    let room = state.rooms.get_mut(&room_id).expect("Failed to get users");
-
+pub async fn broadcast_message(msg: ServerMsg, addr: WeakAddress<JvsState>, room_id: String) -> Result<()> {
     let server_msg = serde_json::to_string(&msg).expect("Failed to serialize");
 
-    for (key, _client) in room.users.iter_mut() {
-        let ws = state.ws_clients.get_mut(key).expect("Failed to find socket");
-        ws.send(Message::Text(server_msg.clone())).await?;
-    }
-
-    Ok(())
+    return addr.send(StateGenericMessage::SendSocketMessage { room_id, message: Message::Text(server_msg.clone()) }).await.map_err(|e| anyhow!(e));
 }
 
-pub async fn send_connected_clients(state: &mut JvsState, room_id: String) -> Result<()> {
-    let room = state.rooms.get_mut(&room_id).expect("Cannot find room");
-
-    let mut connected_clients: Vec<String> = Vec::new();
-
-    for (_key, client) in room.users.iter() {
-        connected_clients.push(client.name.clone());
-    }
-
+pub async fn send_connected_clients(addr: WeakAddress<JvsState>, room_id: String) -> Result<()> {
     let connected_clients = ServerMsg::ConnectedClients {
-        clients: connected_clients
+        clients: addr.send(StateGetClientsMessage { room_id: room_id.clone() }).await?
     };
 
-    broadcast_message(connected_clients, state, room_id).await?;
+    broadcast_message(connected_clients, addr, room_id).await?;
 
     Ok(())
 }

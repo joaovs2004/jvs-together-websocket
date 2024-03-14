@@ -1,5 +1,4 @@
-use tokio::sync::Mutex;
-use std::{collections::HashMap, sync::Arc};
+use xtra::Mailbox;
 use tokio::net::TcpListener;
 use handlers::handle_connection;
 use data_types::state_types::JvsState;
@@ -10,11 +9,7 @@ mod utils;
 
 #[tokio::main]
 async fn main() {
-    let state = Arc::new(Mutex::new(JvsState {
-        rooms: HashMap::new(),
-        ws_clients: HashMap::new()
-    }));
-
+    let addr = xtra::spawn_tokio(JvsState::default(), Mailbox::unbounded());
     let server = TcpListener::bind("127.0.0.1:9001").await.expect("Server bind failed");
 
     while let Ok((stream, _)) = server.accept().await {
@@ -23,6 +18,6 @@ async fn main() {
             .expect("connected streams should have a peer address");
         println!("Peer address: {}", peer);
 
-        tokio::spawn(handle_connection(state.clone(), stream, peer));
+        tokio::spawn(handle_connection(addr.downgrade(), stream, peer));
     }
 }

@@ -1,17 +1,15 @@
 use anyhow::Result;
 use futures_util::StreamExt;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
-use std::collections::HashMap;
+use xtra::WeakAddress;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 use crate::data_types::msg_types::{ClientMsg, ServerMsg};
-use crate::data_types::state_types::{HistoryEntry, JvsState, Room, User};
+use crate::data_types::state_types::{JvsState, StateGetCurrentVideoMessage, StateGetHistoryMessage, StateGenericMessage, StateSetReadyMessage};
 use crate::data_types::response_types::InvidiousResponse;
 use crate::utils::{broadcast_message, send_connected_clients};
 
@@ -20,7 +18,7 @@ use url::Url;
 
 
 pub async fn handle_connection(
-    state: Arc<Mutex<JvsState>>,
+    addr: WeakAddress<JvsState>,
     stream: TcpStream,
     peer: SocketAddr,
 ) -> Result<()> {
@@ -34,7 +32,7 @@ pub async fn handle_connection(
     // Add new user to Room on connection
     let user_id = Uuid::new_v4();
 
-    state.lock().await.ws_clients.insert(user_id, ws_sender);
+    addr.send(StateGenericMessage::InsertUser { user_id, ws: ws_sender }).await?;
 
     // Handle incoming WebSocket messages
     while let Some(msg) = ws_receiver.next().await {
@@ -42,21 +40,10 @@ pub async fn handle_connection(
             Ok(msg) => {
                 if msg.is_text() {
                     if let Message::Text(msg) = msg {
-                        handle_msg(&msg, &state, user_id).await?;
+                        handle_msg(&msg, addr.clone(), user_id).await?;
                     }
                 } else if msg.is_close() {
-                    let mut state = state.lock().await;
-
-                    state.ws_clients.remove(&user_id);
-
-                    let rooms = state.rooms.iter_mut();
-
-                    for (_key, value) in rooms {
-                        if value.users.contains_key(&user_id) {
-                            value.users.remove(&user_id);
-                        }
-                    }
-
+                    addr.send(StateGenericMessage::RemoveUser { user_id }).await?;
                     break;
                 }
             }
@@ -69,11 +56,9 @@ pub async fn handle_connection(
 
 async fn handle_msg(
     msg: &str,
-    state: &Arc<Mutex<JvsState<>>>,
+    addr: WeakAddress<JvsState>,
     user_id: Uuid,
 ) -> Result<()> {
-    let mut state = state.lock().await;
-
     let client_msg = serde_json::from_str::<ClientMsg>(msg);
 
     if client_msg.is_err() {
@@ -86,48 +71,28 @@ async fn handle_msg(
 
     match client_msg {
         ClientMsg::SetName { name, room_id } => {
-            let room = state.rooms.get_mut(&room_id).expect("Cannot find room");
-            let user = room.users.get_mut(&user_id);
+            let result = addr.send(StateGenericMessage::RenameUser { user_id, name, room_id: room_id.clone() }).await;
 
-            match user {
-                Some(user) => {
-                    user.name = name;
-                    send_connected_clients(&mut state, room_id).await?;
-                },
-                None => { println!("User not found!") },
-            };
+            match result {
+                Ok(_) => send_connected_clients(addr, room_id).await?,
+                Err(_) => println!("User not found!")
+            }
         }
         ClientMsg::SetReady { room_id } => {
-            let room = state.rooms.get_mut(&room_id).expect("Cannot find room");
+            let should_play = addr.send(StateSetReadyMessage { room_id: room_id.clone() }).await?;
 
-            room.ready_count += 1;
-
-            if room.ready_count == room.users.len() as u32 {
-                room.ready_count = 0;
-
+            if should_play {
                 let set_playing = ServerMsg::SetPlaying {
                     status: true
                 };
 
-                broadcast_message(set_playing, &mut state, room_id).await?;
+                broadcast_message(set_playing, addr, room_id).await?;
             }
         },
         ClientMsg::SendToRoom { room_id } => {
-            let room = state.rooms.entry(room_id.clone()).or_insert(Room {
-                users: HashMap::new(),
-                ready_count: 0,
-                current_video: String::from(""),
-                current_video_payload: String::from(""),
-                history: Vec::new(),
-            });
+            addr.send(StateGenericMessage::JoinRoom { room_id: room_id.clone(), user_id }).await?;
 
-            let user = User {
-                name: user_id.to_string()
-            };
-
-            room.users.insert(user_id, user);
-
-            send_connected_clients(&mut state, room_id).await?;
+            send_connected_clients(addr, room_id).await?;
         },
         ClientMsg::SetVideo { url, room_id } => {
             let parsed_url = Url::parse(
@@ -150,29 +115,25 @@ async fn handle_msg(
             if video_id == "" {
                 return Ok(());
             }
+            
+            let room_current_video = addr.send(StateGetCurrentVideoMessage { room_id: room_id.clone() }).await?;
 
-            let room = state.rooms.get_mut(&room_id).expect("Cannot find room");
-
-            if room.current_video == video_id {
+            if room_current_video == video_id {
                 return Ok(());
             }
 
             let basic_info = reqwest::get(format!("https://invidious.slackjeff.com.br/api/v1/videos/{}?fields=title,isFamilyFriendly", video_id)).await?.json::<InvidiousResponse>().await?;
 
-            room.current_video = video_id.clone();
-            room.ready_count = 0;
-            room.history.push(HistoryEntry {
-                url,
-                video_id: video_id.clone(),
-                title: basic_info.title
-            });
+            addr.send(StateGenericMessage::SetVideo { room_id: room_id.clone(), video_id: video_id.clone(), url, title: basic_info.title }).await?;
+
+            let room_history = addr.send(StateGetHistoryMessage { room_id: room_id.clone() }).await?;
 
             if basic_info.is_family_friendly {
-                let payload = ServerMsg::SetVideo { video_id: video_id.clone(), is_restricted_video: false };
-                broadcast_message(payload, &mut state, room_id).await?;
+                let payload = ServerMsg::SetVideo { video_id, is_restricted_video: false };
+                broadcast_message(payload, addr.clone(), room_id.clone()).await?;
 
-                // let history = ServerMsg::UpdateHistory { history:  room.history };
-                // broadcast_message(history, &mut state, room_id).await?;
+                let history = ServerMsg::UpdateHistory { history: room_history };
+                broadcast_message(history, addr.clone(), room_id.clone()).await?;
             }
         },
         ClientMsg::SetPlaying { status, room_id } => {
@@ -180,7 +141,7 @@ async fn handle_msg(
                 status
             };
 
-            broadcast_message(set_playing, &mut state, room_id).await?;
+            broadcast_message(set_playing, addr, room_id).await?;
         }
     }
 
