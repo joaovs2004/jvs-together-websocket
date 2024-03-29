@@ -9,7 +9,9 @@ pub enum ClientMsg {
     SetReady {room_id: String},
     SendToRoom { room_id: String},
     SetVideo { url: String, room_id: String },
-    SetPlaying { status: bool, room_id: String }
+    SetPlaying { status: bool, room_id: String },
+    Seeked { time: f64, room_id: String },
+    SetPlaybackRate { rate: f32, room_id: String }
 }
 
 #[derive(Serialize, Debug)]
@@ -19,4 +21,7 @@ pub enum ServerMsg {
     ConnectedClients { clients: Vec<String> },
     SetVideo { video_id: String, is_restricted_video: bool },
     UpdateHistory { history: Vec<HistoryEntry> },
+    Seeked { time: f64 },
+    UnlockSetVideo,
+    SetPlaybackRate { rate: f32 }
 }

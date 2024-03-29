@@ -6,6 +6,8 @@ use futures_util::{stream::SplitSink, SinkExt};
 use uuid::Uuid;
 use xtra::prelude::*;
 
+use super::msg_types::ServerMsg;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all(serialize = "camelCase"))]
 pub struct HistoryEntry {
@@ -38,11 +40,11 @@ pub struct JvsState {
 
 pub enum StateGenericMessage {
     InsertUser { user_id: Uuid, ws: SplitSink<WebSocketStream<TcpStream>, Message> },
-    RemoveUser { user_id: Uuid },
     RenameUser { user_id: Uuid, name: String, room_id: String },
     JoinRoom { user_id: Uuid, room_id: String },
     SetVideo { room_id: String, video_id: String, url: String, title: String },
-    SendSocketMessage { room_id: String, message: Message }
+    SendSocketMessage { room_id: String, message: Message },
+    SendMsgToUser { user_id: Uuid, message: ServerMsg },
 }
 
 pub struct StateSetReadyMessage {
@@ -61,6 +63,10 @@ pub struct StateGetHistoryMessage {
     pub room_id: String
 }
 
+pub struct  StateRemoveUserMessage {
+    pub user_id: Uuid
+}
+
 impl Handler<StateGenericMessage> for JvsState {
     type Return = ();
 
@@ -72,17 +78,6 @@ impl Handler<StateGenericMessage> for JvsState {
         match message {
             StateGenericMessage::InsertUser { user_id, ws } => {
                 self.ws_clients.insert(user_id, ws);
-            },
-            StateGenericMessage::RemoveUser { user_id } => {
-                self.ws_clients.remove(&user_id);
-
-                let rooms = self.rooms.iter_mut();
-
-                for (_key, value) in rooms {
-                    if value.users.contains_key(&user_id) {
-                        value.users.remove(&user_id);
-                    }
-                }
             },
             StateGenericMessage::RenameUser { user_id, name, room_id } => {
                 let room = self.rooms.get_mut(&room_id).expect("Cannot find room");
@@ -117,7 +112,12 @@ impl Handler<StateGenericMessage> for JvsState {
 
                     let _ = ws.send(message.clone()).await;
                 }
-            }
+            },
+            StateGenericMessage::SendMsgToUser { user_id, message } => {
+                let ws_user = self.ws_clients.get_mut(&user_id).expect("Failed to find user");
+
+                let _ = ws_user.send(Message::Text(serde_json::to_string(&message).unwrap())).await;
+            },
         };
     }
 }
@@ -188,5 +188,38 @@ impl Handler<StateGetHistoryMessage> for JvsState {
         let room = self.rooms.get_mut(&message.room_id).expect("Cannot find room");
 
         room.history.clone()
+    }
+}
+
+impl Handler<StateRemoveUserMessage> for JvsState {
+    type Return = Option<String>;
+
+    async fn handle(
+        &mut self,
+        message: StateRemoveUserMessage,
+        _ctx: &mut Context<Self>,
+    ) -> Option<String> {
+        self.ws_clients.remove(&message.user_id);
+
+        let rooms = self.rooms.iter_mut();
+
+        let mut room_name = String::default();
+
+        for (key, value) in rooms {
+            if value.users.contains_key(&message.user_id) {
+                value.users.remove(&message.user_id);
+
+                room_name = key.to_string();
+            }
+        }
+
+        let room = self.rooms.get(&room_name).unwrap();
+
+        if room.users.len() == 0 {
+            self.rooms.remove(&room_name);
+            return None;
+        }
+
+        Some(room_name)
     }
 }

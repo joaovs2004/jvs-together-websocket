@@ -9,7 +9,7 @@ use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 use crate::data_types::msg_types::{ClientMsg, ServerMsg};
-use crate::data_types::state_types::{JvsState, StateGetCurrentVideoMessage, StateGetHistoryMessage, StateGenericMessage, StateSetReadyMessage};
+use crate::data_types::state_types::{JvsState, StateGenericMessage, StateGetCurrentVideoMessage, StateGetHistoryMessage, StateRemoveUserMessage, StateSetReadyMessage};
 use crate::data_types::response_types::InvidiousResponse;
 use crate::utils::{broadcast_message, send_connected_clients};
 
@@ -41,9 +41,15 @@ pub async fn handle_connection(
                 if msg.is_text() {
                     if let Message::Text(msg) = msg {
                         handle_msg(&msg, addr.clone(), user_id).await?;
+                        addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::UnlockSetVideo }).await?;
                     }
                 } else if msg.is_close() {
-                    addr.send(StateGenericMessage::RemoveUser { user_id }).await?;
+                    let room_id = addr.send(StateRemoveUserMessage { user_id }).await?;
+
+                    if let Some (room_id) = room_id {
+                        send_connected_clients(addr.clone(), room_id).await?;
+                    }
+
                     break;
                 }
             }
@@ -62,7 +68,6 @@ async fn handle_msg(
     let client_msg = serde_json::from_str::<ClientMsg>(msg);
 
     if client_msg.is_err() {
-        println!("{}", msg);
         return Ok(());
     }
 
@@ -92,6 +97,10 @@ async fn handle_msg(
         ClientMsg::SendToRoom { room_id } => {
             addr.send(StateGenericMessage::JoinRoom { room_id: room_id.clone(), user_id }).await?;
 
+            let room_history = addr.send(StateGetHistoryMessage { room_id: room_id.clone() }).await?;
+            let history = ServerMsg::UpdateHistory { history: room_history };
+            broadcast_message(history, addr.clone(), room_id.clone()).await?;
+
             send_connected_clients(addr, room_id).await?;
         },
         ClientMsg::SetVideo { url, room_id } => {
@@ -100,7 +109,6 @@ async fn handle_msg(
             )?;
 
             if !["www.youtube.com", "youtube.com", "youtu.be"].contains(&parsed_url.host_str().unwrap_or("google.com")) {
-                println!("a");
                 return Ok(());
             }
 
@@ -115,14 +123,14 @@ async fn handle_msg(
             if video_id == "" {
                 return Ok(());
             }
-            
+
             let room_current_video = addr.send(StateGetCurrentVideoMessage { room_id: room_id.clone() }).await?;
 
             if room_current_video == video_id {
                 return Ok(());
             }
 
-            let basic_info = reqwest::get(format!("https://invidious.slackjeff.com.br/api/v1/videos/{}?fields=title,isFamilyFriendly", video_id)).await?.json::<InvidiousResponse>().await?;
+            let basic_info = reqwest::get(format!("https://inv.tux.pizza/api/v1/videos/{}?fields=title,isFamilyFriendly", video_id)).await?.json::<InvidiousResponse>().await?;
 
             addr.send(StateGenericMessage::SetVideo { room_id: room_id.clone(), video_id: video_id.clone(), url, title: basic_info.title }).await?;
 
@@ -142,6 +150,15 @@ async fn handle_msg(
             };
 
             broadcast_message(set_playing, addr, room_id).await?;
+        },
+        ClientMsg::Seeked { time, room_id } => {
+            let seek = ServerMsg::Seeked { time };
+
+            broadcast_message(seek, addr, room_id).await?;
+        },
+        ClientMsg::SetPlaybackRate { rate, room_id } => {
+            let rate = ServerMsg::SetPlaybackRate { rate };
+            broadcast_message(rate, addr, room_id).await?;
         }
     }
 
