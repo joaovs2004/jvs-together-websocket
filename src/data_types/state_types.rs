@@ -213,13 +213,17 @@ impl Handler<StateRemoveUserMessage> for JvsState {
             }
         }
 
-        let room = self.rooms.get(&room_name).unwrap();
+        let room = self.rooms.get(&room_name);
 
-        if room.users.len() == 0 {
-            self.rooms.remove(&room_name);
-            return None;
+        if let Some(room) = room {
+            if room.users.len() == 0 {
+                self.rooms.remove(&room_name);
+                return None;
+            }
+
+            Some(room_name)
+        } else {
+            None
         }
-
-        Some(room_name)
     }
 }
