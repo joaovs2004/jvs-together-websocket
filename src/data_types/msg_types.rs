@@ -11,7 +11,8 @@ pub enum ClientMsg {
     SetVideo { url: String, room_id: String },
     SetPlaying { status: bool, room_id: String },
     Seeked { time: f64, room_id: String },
-    SetPlaybackRate { rate: f32, room_id: String }
+    SetPlaybackRate { rate: f32, room_id: String },
+    Pong
 }
 
 #[derive(Serialize, Debug)]
@@ -23,5 +24,6 @@ pub enum ServerMsg {
     UpdateHistory { history: Vec<HistoryEntry> },
     Seeked { time: f64 },
     UnlockSetVideo,
-    SetPlaybackRate { rate: f32 }
+    SetPlaybackRate { rate: f32 },
+    Ping
 }

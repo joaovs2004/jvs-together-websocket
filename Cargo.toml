@@ -17,6 +17,7 @@ serde_json = "1.0.114"
 url = "2.5.0"
 reqwest = { version = "0.11.25", features = ["json"]}
 xtra = { version = "0.6.0", features = ["macros", "tokio"]}
+openssl = { version = "0.10", features = ["vendored"] }
 
 [dependencies.uuid]
 version = "1.7.0"

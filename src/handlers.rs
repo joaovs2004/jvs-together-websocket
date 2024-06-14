@@ -1,9 +1,12 @@
 use anyhow::Result;
 use futures_util::StreamExt;
+use reqwest::Client;
 use tokio::net::TcpStream;
+use tokio::time;
 use tokio_tungstenite::tungstenite::Message;
 use xtra::WeakAddress;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
@@ -14,8 +17,6 @@ use crate::data_types::response_types::InvidiousResponse;
 use crate::utils::{broadcast_message, send_connected_clients};
 
 use url::Url;
-
-
 
 pub async fn handle_connection(
     addr: WeakAddress<JvsState>,
@@ -29,31 +30,42 @@ pub async fn handle_connection(
 
     let (ws_sender, mut ws_receiver) = ws_stream.split();
 
+    let mut interval = time::interval(Duration::from_secs(20));
+
+    interval.tick().await;
+
     // Add new user to Room on connection
     let user_id = Uuid::new_v4();
 
     addr.send(StateGenericMessage::InsertUser { user_id, ws: ws_sender }).await?;
 
     // Handle incoming WebSocket messages
-    while let Some(msg) = ws_receiver.next().await {
-        match msg {
-            Ok(msg) => {
-                if msg.is_text() {
-                    if let Message::Text(msg) = msg {
-                        handle_msg(&msg, addr.clone(), user_id).await?;
-                        addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::UnlockSetVideo }).await?;
-                    }
-                } else if msg.is_close() {
-                    let room_id = addr.send(StateRemoveUserMessage { user_id }).await?;
+    loop {
+        tokio::select! {
+            val = ws_receiver.next() => {
+                match val.unwrap() {
+                    Ok(msg) => {
+                        if msg.is_text() {
+                            if let Message::Text(msg) = msg {
+                                handle_msg(&msg, addr.clone(), user_id).await?;
+                                addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::UnlockSetVideo }).await?;
+                            }
+                        } else if msg.is_close() {
+                            let room_id = addr.send(StateRemoveUserMessage { user_id }).await?;
 
-                    if let Some (room_id) = room_id {
-                        send_connected_clients(addr.clone(), room_id).await?;
-                    }
+                            if let Some (room_id) = room_id {
+                                send_connected_clients(addr.clone(), room_id).await?;
+                            }
 
-                    break;
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 }
+            },
+            _val = interval.tick() => {
+                addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::Ping }).await?;
             }
-            Err(_) => break,
         }
     }
 
@@ -72,7 +84,6 @@ async fn handle_msg(
     }
 
     let client_msg = client_msg.unwrap();
-
 
     match client_msg {
         ClientMsg::SetName { name, room_id } => {
@@ -130,7 +141,14 @@ async fn handle_msg(
                 return Ok(());
             }
 
-            let basic_info = reqwest::get(format!("https://inv.tux.pizza/api/v1/videos/{}?fields=title,isFamilyFriendly", video_id)).await?.json::<InvidiousResponse>().await?;
+            let client = Client::builder()
+                .timeout(Duration::from_secs(60))
+                .build()
+                .unwrap();
+
+            let basic_info = client.get(format!("https://inv.tux.pizza/api/v1/videos/{}?fields=title,isFamilyFriendly", video_id))
+                .timeout(Duration::from_secs(60))
+                .send().await?.json::<InvidiousResponse>().await?;
 
             addr.send(StateGenericMessage::SetVideo { room_id: room_id.clone(), video_id: video_id.clone(), url, title: basic_info.title }).await?;
 
@@ -159,6 +177,9 @@ async fn handle_msg(
         ClientMsg::SetPlaybackRate { rate, room_id } => {
             let rate = ServerMsg::SetPlaybackRate { rate };
             broadcast_message(rate, addr, room_id).await?;
+        },
+        ClientMsg::Pong => {
+            println!("Client is alive");
         }
     }
 
