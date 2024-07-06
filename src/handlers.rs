@@ -126,7 +126,11 @@ async fn handle_msg(
             let video_id = match parsed_url.host_str().unwrap() {
                 "youtu.be" => parsed_url.path()[1..].to_string(),
                 "youtube.com" | "www.youtube.com" => {
-                    parsed_url.query_pairs().find(|p| p.0 == "v").unwrap_or(("".into(), "".into())).1.to_string()
+                    if !parsed_url.path().starts_with("/shorts/") {
+                        parsed_url.query_pairs().find(|p| p.0 == "v").unwrap_or(("".into(), "".into())).1.to_string()
+                    } else {
+                        parsed_url.path()[8..].to_string()
+                    }
                 },
                 _ => String::default()
             };
