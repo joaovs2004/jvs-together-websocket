@@ -47,7 +47,7 @@ pub async fn handle_connection(
                     Ok(msg) => {
                         if msg.is_text() {
                             if let Message::Text(msg) = msg {
-                                handle_msg(&msg, addr.clone(), user_id).await?;
+                                let _ = handle_msg(&msg, addr.clone(), user_id).await;
                                 addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::UnlockSetVideo }).await?;
                             }
                         } else if msg.is_close() {
