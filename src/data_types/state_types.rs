@@ -27,6 +27,7 @@ pub struct Room {
     pub ready_count: u32,
     pub current_video: String,
     pub current_video_payload: String,
+    pub rewind_alert_played: bool,
     pub history: Vec<HistoryEntry>
 }
 
@@ -65,6 +66,10 @@ pub struct StateGetHistoryMessage {
 
 pub struct  StateRemoveUserMessage {
     pub user_id: Uuid
+}
+
+pub struct StateGetRoomShouldAnnounceRewind {
+    pub room_id: String
 }
 
 impl Handler<StateGenericMessage> for JvsState {
@@ -225,5 +230,25 @@ impl Handler<StateRemoveUserMessage> for JvsState {
         } else {
             None
         }
+    }
+}
+
+impl Handler<StateGetRoomShouldAnnounceRewind> for JvsState {
+    type Return = bool;
+
+    async fn handle(
+        &mut self,
+        message: StateGetRoomShouldAnnounceRewind,
+        _ctx: &mut Context<Self>,
+    ) -> bool {
+        let room = self.rooms.get_mut(&message.room_id).expect("Cannot find room");
+
+        let current_state = room.rewind_alert_played;
+
+        if !current_state {
+            room.rewind_alert_played = true
+        }
+
+        !current_state
     }
 }

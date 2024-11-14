@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::data_types::instances_types::{InstancesManager, InstancesFetchVideoMessage};
 use crate::data_types::msg_types::{ClientMsg, ServerMsg};
-use crate::data_types::state_types::{JvsState, StateGenericMessage, StateGetCurrentVideoMessage, StateGetHistoryMessage, StateRemoveUserMessage, StateSetReadyMessage};
+use crate::data_types::state_types::{JvsState, StateGenericMessage, StateGetCurrentVideoMessage, StateGetHistoryMessage, StateGetRoomShouldAnnounceRewind, StateRemoveUserMessage, StateSetReadyMessage};
 use crate::utils::{broadcast_message, send_connected_clients};
 
 use url::Url;
@@ -175,6 +175,12 @@ async fn handle_msg(
         ClientMsg::SetPlaybackRate { rate, room_id } => {
             let rate = ServerMsg::SetPlaybackRate { rate };
             broadcast_message(rate, state_addr, room_id).await?;
+        },
+        ClientMsg::Rewind { seconds, room_id } => {
+            let should_announce = state_addr.send(StateGetRoomShouldAnnounceRewind{ room_id: room_id.clone() }).await?;
+            let rewind = ServerMsg::Rewind { seconds, should_announce };
+
+            broadcast_message(rewind, state_addr, room_id).await?;
         },
         ClientMsg::Pong => {
             println!("Client is alive");

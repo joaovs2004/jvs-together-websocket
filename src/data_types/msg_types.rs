@@ -12,6 +12,7 @@ pub enum ClientMsg {
     SetPlaying { status: bool, room_id: String },
     Seeked { time: f64, room_id: String },
     SetPlaybackRate { rate: f32, room_id: String },
+    Rewind { seconds: u8, room_id: String },
     Pong
 }
 
@@ -25,5 +26,6 @@ pub enum ServerMsg {
     Seeked { time: f64 },
     UnlockSetVideo,
     SetPlaybackRate { rate: f32 },
+    Rewind { seconds: u8, should_announce: bool },
     Ping
 }
