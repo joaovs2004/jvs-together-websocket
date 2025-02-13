@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinSet;
 use xtra::prelude::*;
+use dotenv::dotenv;
+use std::env;
 
-use super::response_types::InvidiousResponse;
+use super::response_types::YoutubeDataResponse;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct InstanceMonitor {
@@ -18,99 +18,49 @@ struct Instance {
     pub monitor: Option<InstanceMonitor>,
 }
 
-type InvidiousInstancesApiResponse = (String, Instance);
-
 // Actor
 #[derive(Default, xtra::Actor)]
-pub struct InstancesManager {
-    instances: Vec<InvidiousInstancesApiResponse>,
-}
+pub struct InstancesManager;
 
 // Actor messages
 pub struct InstancesFetchVideoMessage {
     pub video_id: String,
 }
 
-pub struct InstancesUpdateInstancesMessage {}
-
 // Messages implementations
 impl Handler<InstancesFetchVideoMessage> for InstancesManager {
-    type Return = Result<InvidiousResponse>;
+    type Return = Result<YoutubeDataResponse>;
 
     async fn handle(
         &mut self,
         message: InstancesFetchVideoMessage,
         _ctx: &mut Context<Self>,
     ) -> Self::Return {
-        let mut set = JoinSet::new();
+        dotenv().ok();
+        let api_key = env::var("YOUTUBE_API_KEY").expect("You need to write the YOUTUBE_API_KEY in .env");
 
-        for instance in &self.instances {
-            set.spawn(reqwest::get(format!(
-                "{}/api/v1/videos/{}?fields=title,isFamilyFriendly",
-                instance.1.uri, message.video_id
-            )));
+        let response = reqwest::get(format!(
+            "https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id={}&key={}",
+            message.video_id, api_key
+        )).await;
+
+        let mut video_info: Result<YoutubeDataResponse> =
+            Err(anyhow!("No video found"));
+
+        match response {
+            Ok(response) => {
+                let youtube_response = response.json::<YoutubeDataResponse>().await;
+                match youtube_response {
+                    Ok(youtube_response) => {
+                        video_info = Ok(youtube_response)
+                    },
+                    Err(_) => return video_info,
+                }
+            },
+            Err(_) => return video_info,
         }
-
-        let mut video_info: Result<InvidiousResponse> =
-            Err(anyhow!("No invidious instance could process the video"));
-
-        while let Some(join_result) = set.join_next().await {
-            match join_result {
-                Ok(request_result) => match request_result {
-                    Ok(response) => {
-                        let instance_url =
-                            &response.url().host_str().unwrap_or("Unknown").to_owned();
-
-                        match response.status() {
-                            StatusCode::OK => match response.json::<InvidiousResponse>().await {
-                                Ok(info) => {
-                                    println!(
-                                        "Chosen instance for video {}: {}",
-                                        message.video_id, instance_url
-                                    );
-                                    video_info = Ok(info);
-                                    break;
-                                }
-                                Err(_) => continue,
-                            },
-                            _ => continue,
-                        }
-                    }
-                    Err(_) => continue,
-                },
-                Err(_) => continue,
-            }
-        }
-
-        set.abort_all();
 
         return video_info;
     }
 }
 
-impl Handler<InstancesUpdateInstancesMessage> for InstancesManager {
-    type Return = Result<()>;
-
-    async fn handle(
-        &mut self,
-        _message: InstancesUpdateInstancesMessage,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Return {
-        println!("updating invdious instances!!");
-        // Fetch available invidious' apis
-        self.instances = reqwest::get("https://api.invidious.io/instances.json")
-            .await?
-            .json::<Vec<InvidiousInstancesApiResponse>>()
-            .await?
-            .into_iter()
-            .filter(|dr| match &dr.1.monitor {
-                Some(monitor) => {
-                    !monitor.down && monitor.uptime > 70.0 && dr.1.uri.starts_with("http")
-                }
-                None => false,
-            })
-            .collect::<Vec<InvidiousInstancesApiResponse>>();
-
-        return Ok(());
-    }
-}

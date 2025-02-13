@@ -148,16 +148,26 @@ async fn handle_msg(
 
             let basic_info = instances_addr.send(InstancesFetchVideoMessage { video_id: video_id.clone() }).await??;
 
-            state_addr.send(StateGenericMessage::SetVideo { room_id: room_id.clone(), video_id: video_id.clone(), url, title: basic_info.title }).await?;
+            match basic_info.items.first() {
+                Some(item) => {
+                    state_addr.send(StateGenericMessage::SetVideo {
+                        room_id: room_id.clone(), video_id: video_id.clone(), url, title: item.snippet.title.clone()
+                    }).await?;
 
-            let room_history = state_addr.send(StateGetHistoryMessage { room_id: room_id.clone() }).await?;
+                    let room_history = state_addr.send(StateGetHistoryMessage { room_id: room_id.clone() }).await?;
 
-            if basic_info.is_family_friendly {
-                let payload = ServerMsg::SetVideo { video_id, is_restricted_video: false };
-                broadcast_message(payload, state_addr.clone(), room_id.clone()).await?;
+                    // If ytRating is not present, the video dont have age restriction
+                    if let None = item.content_details.content_rating.yt_rating {
+                        let payload = ServerMsg::SetVideo { video_id, is_restricted_video: false };
+                        broadcast_message(payload, state_addr.clone(), room_id.clone()).await?;
 
-                let history = ServerMsg::UpdateHistory { history: room_history };
-                broadcast_message(history, state_addr.clone(), room_id.clone()).await?;
+                        let history = ServerMsg::UpdateHistory { history: room_history };
+                        broadcast_message(history, state_addr.clone(), room_id.clone()).await?;
+                    }
+                },
+                None => {
+                    println!("No item found");
+                },
             }
         },
         ClientMsg::SetPlaying { status, room_id } => {
