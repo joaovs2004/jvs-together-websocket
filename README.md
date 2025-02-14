@@ -41,4 +41,4 @@ Before you begin, ensure you have the following:
    cargo run
    ```
 
-The server will be avaible at ws://localhost:9001
+The server will be available at ws://localhost:9001
