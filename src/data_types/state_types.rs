@@ -26,7 +26,6 @@ pub struct Room {
     pub users: HashMap<Uuid, User>,
     pub ready_count: u32,
     pub current_video: String,
-    pub current_video_payload: String,
     pub rewind_alert_played: bool,
     pub history: Vec<HistoryEntry>
 }

@@ -122,10 +122,18 @@ async fn handle_msg(
             state_addr.send(StateGenericMessage::JoinRoom { room_id: room_id.clone(), user_id }).await?;
 
             let room_history = state_addr.send(StateGetHistoryMessage { room_id: room_id.clone() }).await?;
-            let history = ServerMsg::UpdateHistory { history: room_history };
+            let history = ServerMsg::UpdateHistory { history: room_history.clone() };
             broadcast_message(history, state_addr.clone(), room_id.clone()).await?;
 
-            send_connected_clients(state_addr, room_id).await?;
+            send_connected_clients(state_addr.clone(), room_id.clone()).await?;
+
+            // Send the last video in room to the client when he enter the room
+            if room_history.len() > 0 {
+                let last_video = room_history.last().unwrap().clone();
+                let payload = ServerMsg::SetVideo { video_id: last_video.video_id.clone(), is_restricted_video: false };
+
+                state_addr.send(StateGenericMessage::SendMsgToUser { user_id, message: payload }).await?;
+            }
         },
         ClientMsg::SetVideo { url, room_id } => {
             let parsed_url = Url::parse(
