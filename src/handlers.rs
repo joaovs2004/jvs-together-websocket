@@ -30,11 +30,9 @@ pub async fn handle_connection(
 
     let (ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let mut interval = time::interval(Duration::from_secs(20));
-    let mut interval_connection = time::interval(Duration::from_secs(50));
+    let mut interval_ping = time::interval(Duration::from_secs(20));
 
-    interval.tick().await;
-    interval_connection.tick().await;
+    interval_ping.tick().await;
 
     // Add new user to Room on connection
     let user_id = Uuid::new_v4();
@@ -51,7 +49,6 @@ pub async fn handle_connection(
                             if let Message::Text(msg) = msg {
                                 let _ = handle_msg(&msg, state_addr.clone(), instances_addr.clone(), user_id).await;
                                 state_addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::UnlockSetVideo }).await?;
-                                interval_connection.reset();
                             }
                         } else if msg.is_close() {
                             let room_id = state_addr.send(StateRemoveUserMessage { user_id }).await?;
@@ -63,21 +60,21 @@ pub async fn handle_connection(
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        // Remove the client of the room when a error occurs
+                        let room_id = state_addr.send(StateRemoveUserMessage { user_id }).await?;
+
+                        if let Some (room_id) = room_id {
+                            send_connected_clients(state_addr.clone(), room_id).await?;
+                        }
+
+                        break;
+                    },
                 }
             },
-            _val = interval.tick() => {
+            _val = interval_ping.tick() => {
                 state_addr.send(StateGenericMessage::SendMsgToUser { user_id, message: ServerMsg::Ping }).await?;
-            }
-            _val = interval_connection.tick() => {
-                let room_id = state_addr.send(StateRemoveUserMessage { user_id }).await?;
-
-                if let Some (room_id) = room_id {
-                    send_connected_clients(state_addr.clone(), room_id).await?;
-                }
-
-                break;
-            }
+            },
         }
     }
 
