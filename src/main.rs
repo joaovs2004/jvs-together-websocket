@@ -14,7 +14,9 @@ mod utils;
 async fn main() -> Result<()> {
     let state_addr = xtra::spawn_tokio(JvsState::default(), Mailbox::unbounded());
     let instances_addr = xtra::spawn_tokio(InstancesManager::default(), Mailbox::unbounded());
-    let server = TcpListener::bind("127.0.0.1:9001").await.expect("Server bind failed");
+    let server = TcpListener::bind("0.0.0.0:9001")
+        .await
+        .expect("Server bind failed");
 
     loop {
         tokio::select! {

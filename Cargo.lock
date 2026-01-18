@@ -469,6 +469,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "jvs-together-websocket"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenv",
+ "futures-channel",
+ "futures-util",
+ "log",
+ "openssl",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+ "xtra",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,26 +1026,6 @@ dependencies = [
  "fastrand",
  "rustix",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "test_rocket"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dotenv",
- "futures-channel",
- "futures-util",
- "log",
- "openssl",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
- "url",
- "uuid",
- "xtra",
 ]
 
 [[package]]
