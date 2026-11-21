@@ -1,9 +1,12 @@
-FROM rust:1.92-bullseye AS builder
-WORKDIR /usr/src/myapp
-COPY . .
-RUN cargo install --path .
+FROM maven:3.9-eclipse-temurin-17 AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn -q -DskipTests package
 
-FROM debian:bullseye-slim
-COPY --from=builder /usr/local/cargo/bin/jvs-together-websocket /usr/local/bin/myapp
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+COPY --from=builder /app/target/jvs-together-websocket-1.0.0.jar app.jar
 EXPOSE 9001
-CMD ["myapp"]
+ENV PORT=9001
+CMD ["java", "-jar", "app.jar"]
